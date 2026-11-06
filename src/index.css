@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Headings ship one weight: the solid semibold that matches the logo's serif. */
+@layer utilities {
+  .font-display { font-weight: 600; }
+}
+
+/* Self hosted webfonts (latin subsets), preloaded from index.html. */
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/source-serif-4-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/source-serif-4-latin-600-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/inter-latin-300-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/inter-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/inter-latin-700-normal.woff2') format('woff2');
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+  }
+
+  ::selection {
+    background-color: rgba(225, 173, 52, 0.28);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .grain {
+    background-image: radial-gradient(rgba(27, 26, 23, 0.045) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  /* Sparkles left behind by the loading-screen broom */
+  @keyframes cc-sparkle {
+    0% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(calc(-50% - 20px), calc(-50% + 16px)) scale(0.15) rotate(90deg);
+    }
+  }
+}
+
+/*
+ * One visible keyboard focus ring for the whole site, in the blue accent.
+ * Wrapped in :where() so it carries zero specificity: elements that opt
+ * out with outline-none (or draw their own ring) keep their own styling.
+ */
+:where(:focus-visible) {
+  outline: 2px solid #2D6D8B;
+  outline-offset: 3px;
+}
+
+/*
+ * Saving the fix plan as a PDF prints the plan alone, on white, without the
+ * buttons that only work on screen.
+ */
+@media print {
+  body * { visibility: hidden; }
+  .quiz-plan, .quiz-plan * { visibility: visible; }
+  .quiz-plan { position: absolute; inset: 0 auto auto 0; width: 100%; padding: 0 8mm; background: #fff; }
+  .quiz-plan__actions { display: none; }
+  html, body { background: #fff !important; }
+}
