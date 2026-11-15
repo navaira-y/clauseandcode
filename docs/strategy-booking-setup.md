@@ -1,6 +1,6 @@
 # Ziina strategy booking — test backend in progress
 
-The checkout is **not live**. The backend accepts only explicitly enabled test-mode requests; live payments are blocked in code. The booking popup is not connected to it and still uses the existing manual-payment arrangement. Do not enable the backend on the live site or apply the migrations until the remaining work below is reviewed and tested.
+The checkout is **not live**. The backend accepts only explicitly enabled test-mode requests; live payments are blocked in code. The booking popup is not connected to it: the free call still opens its calendar, while the strategy option shows a coming-soon message. Do not enable the backend on the live site or apply the migrations until the remaining work below is reviewed and tested.
 
 ## Work completed
 
