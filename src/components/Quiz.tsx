@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useReveal } from '../hooks/useReveal'
 import { useRobotMood } from '../context/RobotMood'
 import Eyebrow from './Eyebrow'
@@ -11,9 +12,11 @@ import {
   TEAM_SIZES,
   VERIFY_SCALE,
   buildPlan,
+  cleanOtherBusiness,
   nounsFor,
   verifyTarget,
   whatsappLink,
+  type AreaId,
   type QuizAnswers,
   type Status,
 } from '../content/quiz'
@@ -21,12 +24,14 @@ import { site } from '../config/site'
 
 type Draft = {
   model?: string
+  otherBusiness?: string
   team?: number
   belief?: string
   answers: number[]
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const validPhone = (value: string) => /^\+[0-9 ()-]+$/.test(value.trim()) && /^[0-9]{7,15}$/.test(value.replace(/\D/g, ''))
 
 const option =
   'group flex w-full items-center justify-between gap-4 rounded-2xl border px-5 py-4 text-left text-[15px] text-ink transition-all duration-200 hover:border-glass/50 hover:bg-white focus-visible:border-glass'
@@ -42,7 +47,7 @@ const quiet = '-my-2 py-2 text-[13.5px] font-medium text-ink-muted underline-off
  * The quiz: what kind of business, how big, what they think is wrong, then
  * what actually happens at each stage of the work, and one check against
  * their own records on the stage that stands out. The plan follows straight
- * away; the email comes after, for those who want a copy.
+ * away; visitors can optionally ask the team to reach out afterwards.
  */
 function FixPlan({ onExit }: { onExit: () => void }) {
   const [draft, setDraft] = useState<Draft>({ answers: [] })
@@ -57,7 +62,10 @@ function FixPlan({ onExit }: { onExit: () => void }) {
 
   // keyboard and screen reader users land on each new question
   useEffect(() => {
-    headRef.current?.focus({ preventScroll: true })
+    const heading = headRef.current
+    const dialog = heading?.closest('dialog')
+    if (dialog) dialog.scrollTop = 0
+    heading?.focus({ preventScroll: true })
   }, [step, plan])
 
   const next = (change: Partial<Draft> = {}) => {
@@ -71,7 +79,7 @@ function FixPlan({ onExit }: { onExit: () => void }) {
     setStep(0)
   }
   const finish = (answers: number[], extra: number | null) =>
-    setPlan({ model: draft.model!, team: draft.team!, belief: draft.belief!, answers, extra })
+    setPlan({ model: draft.model!, ...(draft.model === 'other' && draft.otherBusiness ? { otherBusiness: draft.otherBusiness } : {}), team: draft.team!, belief: draft.belief!, answers, extra })
 
   if (plan) return <PlanView answers={plan} headRef={headRef} onRestart={restart} />
 
@@ -97,7 +105,38 @@ function FixPlan({ onExit }: { onExit: () => void }) {
   if (current === 'model') {
     label = 'Your business'
     question = 'What kind of business do you run?'
-    body = choose(MODELS.map((m) => ({ text: m.label, hint: m.hint })), MODELS.findIndex((m) => m.id === draft.model), (i) => next({ model: MODELS[i].id }))
+    body = (
+      <>
+        {choose(MODELS.map((m) => ({ text: m.label, hint: m.hint })), MODELS.findIndex((m) => m.id === draft.model), (i) => {
+          const model = MODELS[i].id
+          if (model === 'other') setDraft((d) => ({ ...d, model }))
+          else next({ model, otherBusiness: undefined })
+        })}
+        {draft.model === 'other' && (
+          <form className="mt-5" onSubmit={(event) => {
+            event.preventDefault()
+            const otherBusiness = cleanOtherBusiness(draft.otherBusiness)
+            if (otherBusiness) next({ otherBusiness })
+          }}>
+            <label htmlFor="other-business" className="block text-[14px] font-semibold text-ink">Tell us a little about your business</label>
+            <input
+              id="other-business"
+              type="text"
+              required
+              maxLength={80}
+              autoFocus
+              value={draft.otherBusiness ?? ''}
+              onChange={(event) => setDraft((d) => ({ ...d, otherBusiness: event.target.value }))}
+              placeholder="For example, a catering business"
+              className="mt-2 w-full rounded-2xl border border-black/[0.1] bg-white/80 px-5 py-4 text-[16px] text-ink outline-none placeholder:text-ink-muted/70 focus:border-glass sm:text-[15px]"
+            />
+            <button type="submit" disabled={!cleanOtherBusiness(draft.otherBusiness)} className={`${goldButton} mt-4`}>
+              Continue <span aria-hidden="true">→</span>
+            </button>
+          </form>
+        )}
+      </>
+    )
   } else if (current === 'team') {
     label = 'Your business'
     question = 'How many people work in it, including you?'
@@ -165,6 +204,19 @@ function PlanSection({ title, className = '', children }: { title: string; class
   )
 }
 
+/** Secondary detail stays available without making the first view text-heavy. */
+function PlanDetails({ title, children, preview }: { title: string; children: ReactNode; preview?: ReactNode }) {
+  return (
+    <details className="group mt-4 rounded-2xl border border-black/[0.08] bg-white/60 px-4 sm:px-5">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 py-4 font-display text-[1.12rem] leading-snug text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-glass [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">{title}{preview}</span>
+        <svg viewBox="0 0 20 20" className="h-5 w-5 shrink-0 text-glass transition-transform group-open:rotate-180 motion-reduce:transition-none" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+      </summary>
+      <div className="border-t border-black/[0.07] pb-5 pt-1">{children}</div>
+    </details>
+  )
+}
+
 const STATUS_TONE: Record<Status, string> = {
   first: 'font-semibold text-brand-600',
   risk: 'font-medium text-brand-600',
@@ -204,29 +256,90 @@ function StageMark({ status }: { status: Status }) {
  * drawn as a journey with each stage marked, how one weak point feeds
  * another, why it matters, then two steps: check it, then fix it, simplest
  * first. The answers behind it and what we couldn't tell come after, then
- * the call, and a copy by email for those who want one.
+ * the call and an optional request for the team to reach out.
  */
+// Each result has its own illustration; the no-priority result uses the
+// discovery robot while visitors explore what is already working.
+const RESULT_ROBOTS: Record<AreaId, string> = {
+  found: '/quiz-result-found.webp',
+  reply: '/quiz-result-reply.webp',
+  followup: '/quiz-result-followup.webp',
+  start: '/quiz-result-start.webp',
+  info: '/quiz-result-info.webp',
+  track: '/quiz-result-track.webp',
+  paid: '/quiz-result-paid.webp',
+  after: '/quiz-result-after.webp',
+  owner: '/quiz-result-owner.webp',
+}
+
 function PlanView({ answers, headRef, onRestart }: {
   answers: QuizAnswers
   headRef: React.RefObject<HTMLHeadingElement>
   onRestart: () => void
 }) {
   const p = buildPlan(answers)
-  const [lead, setLead] = useState({ name: '', email: '', marketing: false })
-  const [sent, setSent] = useState<'sending' | 'sent' | 'failed' | null>(null)
-  const valid = lead.name.trim() && EMAIL.test(lead.email.trim())
+  const [reachOut, setReachOut] = useState<'yes' | 'no' | ''>('')
+  const [lead, setLead] = useState({ name: '', method: '' as 'email' | 'whatsapp' | '', email: '', phone: '' })
+  const [sent, setSent] = useState<'sending' | 'notified' | 'saved' | 'failed' | null>(null)
+  const planRef = useRef<HTMLDivElement>(null)
+  const valid = !!lead.name.trim() && (lead.method === 'email' ? EMAIL.test(lead.email.trim()) : lead.method === 'whatsapp' && validPhone(lead.phone))
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (reachOut !== 'yes' || !valid || sent === 'sending') return
     setSent('sending')
-    // the plan is already on the page; this only sends the copy (see docs/quiz-backend.md)
-    fetch(`${site.apiBaseUrl}/api/quiz-plan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: lead.name.trim(), email: lead.email.trim(), marketing: lead.marketing, answers }),
-    })
-      .then(async (res) => setSent(res.ok && (await res.json()).ok ? 'sent' : 'failed'))
-      .catch(() => setSent('failed'))
+    try {
+      const res = await fetch(`${site.apiBaseUrl}/api/quiz-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: lead.name.trim(),
+          reachOut: true,
+          contactMethod: lead.method,
+          ...(lead.method === 'email' ? { email: lead.email.trim() } : { phone: lead.phone.trim() }),
+          answers,
+        }),
+      })
+      const result = await res.json()
+      setSent(res.ok && result.ok ? (result.notified === true ? 'notified' : 'saved') : 'failed')
+    } catch {
+      setSent('failed')
+    }
+  }
+
+  // Print a normal-flow copy outside the modal's scrolling and clipping
+  // containers, so the browser can paginate the entire plan into a PDF.
+  const printPlan = () => {
+    if (!planRef.current) return
+    const existing = document.querySelector('.quiz-print')
+    existing?.remove()
+    const printRoot = document.createElement('div')
+    printRoot.className = 'quiz-print'
+    printRoot.setAttribute('aria-hidden', 'true')
+    const copy = planRef.current.cloneNode(true) as HTMLElement
+    copy.querySelectorAll('.quiz-plan__actions').forEach((section) => section.remove())
+    // Include the full report even when detail sections were closed on screen.
+    copy.querySelectorAll('details').forEach((detail) => { detail.open = true })
+    printRoot.appendChild(copy)
+    document.body.appendChild(printRoot)
+    document.body.classList.add('printing-quiz-plan')
+
+    let timeout: number | undefined
+    const cleanup = () => {
+      printRoot.remove()
+      document.body.classList.remove('printing-quiz-plan')
+      window.removeEventListener('afterprint', cleanup)
+      if (timeout !== undefined) window.clearTimeout(timeout)
+    }
+    window.addEventListener('afterprint', cleanup, { once: true })
+    // Some browsers do not fire afterprint when the dialog is dismissed.
+    timeout = window.setTimeout(cleanup, 60000)
+    try {
+      window.print()
+    } catch (error) {
+      cleanup()
+      throw error
+    }
   }
 
   const count = (...s: Status[]) => p.map.filter((row) => s.includes(row.status)).length
@@ -237,38 +350,53 @@ function PlanView({ answers, headRef, onRestart }: {
     { n: count('unclear'), label: 'not sure', tone: 'text-ink-muted' },
   ].filter((g) => g.n > 0)
 
-  const field = 'mt-1.5 w-full rounded-xl border border-black/[0.1] bg-white/80 px-4 py-3 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-muted/70 focus:border-glass'
+  const field = 'mt-1.5 w-full rounded-xl border border-black/[0.1] bg-white/80 px-4 py-3 text-[16px] text-ink outline-none transition-colors placeholder:text-ink-muted/70 focus:border-glass sm:text-[15px]'
   const step = 'font-display text-[2.4rem] leading-none text-brand-600'
 
   return (
-    <div className="quiz-plan w-full text-left">
-      <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-glass">Your business fix plan</p>
-      {p.area && <p className="mt-4 text-[14px] font-semibold text-brand-600">Fix first: {p.area.stage.toLowerCase()}</p>}
-      <h3 ref={headRef} tabIndex={-1} className="mt-2 font-display text-[clamp(1.9rem,3.4vw,2.6rem)] leading-[1.08] tracking-[-0.02em] text-ink outline-none">
-        {p.headline}
-      </h3>
-      <p className="mt-4 max-w-xl font-display text-[1.15rem] italic leading-snug text-glass-600">{p.compare}</p>
-      {p.tentative && (
-        <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-ink-muted">
-          You weren’t sure about several answers, so treat this as a first read.
-        </p>
-      )}
+    <div ref={planRef} className="quiz-plan w-full text-left">
+      <div className="overflow-hidden rounded-[24px] border border-brand/25 bg-gradient-to-br from-[#F1E4D1] via-[#F8F1E6] to-white px-5 py-6 sm:px-7 sm:py-7">
+        <div className="grid grid-cols-[minmax(0,1fr)_68px] items-center gap-3 min-[380px]:grid-cols-[minmax(0,1fr)_86px] sm:grid-cols-[minmax(0,1fr)_116px] sm:gap-5">
+          <div className="min-w-0">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-glass">Your business fix plan</p>
+            {answers.model === 'other' && answers.otherBusiness && (
+              <p className="mt-3 break-words text-[14px] font-light leading-relaxed text-ink-soft">Business: {answers.otherBusiness}</p>
+            )}
+            {p.area && <p className="mt-4 text-[14px] font-semibold text-brand-600">Fix first: {p.area.stage.toLowerCase()}</p>}
+            <h3 ref={headRef} tabIndex={-1} className="mt-2 font-display text-[clamp(1.6rem,3.4vw,2.4rem)] leading-[1.12] tracking-[-0.02em] text-ink outline-none">
+              {p.headline}
+            </h3>
+          </div>
+          <img src={p.area ? RESULT_ROBOTS[p.area.id] : '/quiz-robot-discovery.webp'} alt="" aria-hidden="true" className="h-[134px] w-full object-contain object-bottom sm:h-[200px]" />
+        </div>
+        {p.tentative && (
+          <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-ink-muted">
+            You weren’t sure about several answers, so treat this as a first read.
+          </p>
+        )}
+      </div>
 
-      {/* ---------- At a glance ---------- */}
-      <dl className="mt-8 grid border-t border-black/[0.08] pt-5" style={{ gridTemplateColumns: `repeat(${glance.length}, minmax(0, 1fr))` }}>
-        {glance.map((g, i) => (
-          <div key={g.label} className={i > 0 ? 'border-l border-black/[0.08] pl-3 sm:pl-6' : ''}>
+      {/* These are counts of the actual stage statuses, not a made-up score. */}
+      <dl className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {glance.map((g) => (
+          <div key={g.label} className="flex min-w-0 items-center gap-3 rounded-2xl border border-black/[0.06] bg-white/60 px-3 py-3">
             <dt className="sr-only">{g.label}</dt>
-            <dd>
-              <span className={`block font-display text-[2.4rem] leading-none ${g.tone}`}>{g.n}</span>
-              <span className="mt-1.5 block text-[13px] text-ink-muted">{g.label}</span>
+            <dd className="flex min-w-0 items-center gap-3">
+              <span className={`font-display text-[1.65rem] leading-none ${g.tone}`}>{g.n}</span>
+              <span className="text-[12.5px] leading-snug text-ink-muted">{g.label}</span>
             </dd>
           </div>
         ))}
       </dl>
 
-      {/* ---------- The business as a journey ---------- */}
-      <PlanSection title="Where things stand">
+
+      <PlanDetails title="Where things stand" preview={(
+        <span className="mt-3 flex gap-1.5" aria-hidden="true">
+          {p.map.map((row) => (
+            <span key={row.stage} className={`h-2 min-w-0 flex-1 rounded-full ${row.status === 'first' ? 'bg-brand' : row.status === 'risk' || row.status === 'some' ? 'bg-brand/40' : row.status === 'working' ? 'bg-glass' : row.status === 'unclear' ? 'border border-dashed border-ink-muted/60' : 'bg-ink/10'}`} />
+          ))}
+        </span>
+      )}>
         <p className="mt-1.5 text-[14px] text-ink-muted">Your business from the first enquiry to the work running without you.</p>
         <ol className="relative mt-6">
           <span className="absolute bottom-3.5 left-[13px] top-3.5 w-[2px] rounded-full bg-gradient-to-b from-brand/60 via-glass/40 to-glass/60" aria-hidden="true" />
@@ -283,31 +411,17 @@ function PlanView({ answers, headRef, onRestart }: {
             )
           })}
         </ol>
-      </PlanSection>
+      </PlanDetails>
 
-      {/* ---------- How one weak point feeds another ---------- */}
-      {p.connection && (
-        <PlanSection title="How one problem feeds another">
-          <div className="mt-5 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
-            <span className="font-display text-[1.2rem] text-ink">{p.connection.from}</span>
-            <svg viewBox="0 0 90 14" className="hidden h-3.5 w-[90px] shrink-0 sm:block" fill="none" aria-hidden="true">
-              <path d="M1 7h84M78 1.5 86.5 7 78 12.5" stroke="#E1AD34" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <svg viewBox="0 0 14 40" className="ml-3 h-10 w-3.5 sm:hidden" fill="none" aria-hidden="true">
-              <path d="M7 1v34M1.5 28.5 7 37l5.5-8.5" stroke="#E1AD34" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span className="font-display text-[1.2rem] text-ink">{p.connection.to}</span>
-          </div>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-ink-soft">{p.connection.line}</p>
-        </PlanSection>
-      )}
-
+      {/* Lead with the explanation and the practical steps; extra detail remains available below. */}
       <PlanSection title="Why it matters">
         <p className="mt-3 max-w-xl text-[15.5px] leading-relaxed text-ink">{p.why}</p>
       </PlanSection>
 
-      {/* ---------- What to do: two steps ---------- */}
-      <PlanSection title="What to do next">
+      <section className="mt-10 border-t border-black/[0.08] pt-6">
+        <div className="rounded-2xl bg-glass/[0.06] px-4 py-5 sm:px-5">
+          <h4 className="font-display text-[1.35rem] leading-snug text-ink">What to do next</h4>
+        </div>
         <div className="mt-6 grid grid-cols-[3rem_1fr] gap-x-3">
           <span className={step}>1</span>
           <div>
@@ -330,30 +444,18 @@ function PlanView({ answers, headRef, onRestart }: {
                 <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-glass">Start here</p>
                 <p className="mt-2 text-[15px] leading-relaxed text-ink">{p.simple}</p>
               </div>
-              <div className="border-t border-black/[0.08] pt-5 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-muted">If that isn’t enough</p>
-                <p className="mt-2 text-[14.5px] leading-relaxed text-ink-soft">{p.bigger}</p>
-                <a href={p.see.href} className="mt-3 inline-block text-[13.5px] font-semibold text-glass-600 underline decoration-glass/30 underline-offset-4 hover:decoration-glass">
-                  {p.see.label} →
-                </a>
+              <div className="sm:pl-6">
+                <PlanDetails title="If that isn’t enough">
+                  <p className="mt-3 text-[14.5px] leading-relaxed text-ink-soft">{p.bigger}</p>
+                  <a href={p.see.href} className="mt-3 inline-block text-[13.5px] font-semibold text-glass-600 underline decoration-glass/30 underline-offset-4 hover:decoration-glass">
+                    {p.see.label} →
+                  </a>
+                </PlanDetails>
               </div>
             </div>
           </div>
         </div>
-      </PlanSection>
-
-      {p.evidence.length > 0 && (
-        <PlanSection title="Based on what you told us">
-          <ul className="mt-4 grid gap-4">
-            {p.evidence.map((e) => (
-              <li key={e.question} className="text-[14.5px] leading-relaxed">
-                <span className="block text-ink-muted">{e.question}</span>
-                <span className="mt-0.5 block font-display text-[1.05rem] text-ink">“{e.answer}”</span>
-              </li>
-            ))}
-          </ul>
-        </PlanSection>
-      )}
+      </section>
 
       {p.unclear.length > 0 && (
         <PlanSection title="What we couldn’t tell">
@@ -365,6 +467,36 @@ function PlanView({ answers, headRef, onRestart }: {
         </PlanSection>
       )}
 
+      {p.connection && (
+        <PlanDetails title="How one problem feeds another">
+          <div className="mt-5 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <span className="font-display text-[1.2rem] text-ink">{p.connection.from}</span>
+            <svg viewBox="0 0 90 14" className="hidden h-3.5 w-[90px] shrink-0 sm:block" fill="none" aria-hidden="true">
+              <path d="M1 7h84M78 1.5 86.5 7 78 12.5" stroke="#E1AD34" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <svg viewBox="0 0 14 40" className="ml-3 h-10 w-3.5 sm:hidden" fill="none" aria-hidden="true">
+              <path d="M7 1v34M1.5 28.5 7 37l5.5-8.5" stroke="#E1AD34" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="font-display text-[1.2rem] text-ink">{p.connection.to}</span>
+          </div>
+          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-ink-soft">{p.connection.line}</p>
+        </PlanDetails>
+      )}
+
+      <PlanDetails title="Based on what you told us">
+        <p className="mt-4 max-w-xl font-display text-[1.1rem] italic leading-snug text-glass-600">{p.compare}</p>
+        {p.evidence.length > 0 && (
+          <ul className="mt-4 grid gap-4">
+            {p.evidence.map((e) => (
+              <li key={e.question} className="text-[14.5px] leading-relaxed">
+                <span className="block text-ink-muted">{e.question}</span>
+                <span className="mt-0.5 block font-display text-[1.05rem] text-ink">“{e.answer}”</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PlanDetails>
+
       <PlanSection title={QUIZ.close.heading} className="quiz-plan__actions">
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-ink-soft">{QUIZ.close.body}</p>
         <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -374,40 +506,93 @@ function PlanView({ answers, headRef, onRestart }: {
           <a href={whatsappLink(answers)} target="_blank" rel="noopener noreferrer" className={blueButton}>
             Send it to us on WhatsApp <span aria-hidden="true">↗</span>
           </a>
-          <button type="button" onClick={() => window.print()} className={quiet}>
+          <button type="button" onClick={printPlan} className={quiet}>
             Save as PDF
           </button>
         </div>
       </PlanSection>
 
-      <PlanSection title={QUIZ.email.heading} className="quiz-plan__actions">
-        {sent === 'sent' ? (
-          <p className="mt-3 text-[15px] text-ink" aria-live="polite">Sent. Your plan is on its way to {lead.email.trim()}.</p>
+      <PlanSection title="Would you like us to reach out?" className="quiz-plan__actions">
+        {sent === 'notified' ? (
+          <p className="mt-3 text-[15px] text-ink" role="status">Thanks! We’ve received your request and notified the team. We’ll reach out using your chosen method.</p>
+        ) : sent === 'saved' ? (
+          <div className="mt-3 text-[15px] leading-relaxed text-ink-soft" role="status">
+            <p>Your request was saved, but we couldn’t notify the team just now. Please contact us directly so we don’t miss you.</p>
+            <p className="mt-2"><a href={whatsappLink(answers)} target="_blank" rel="noopener noreferrer" className="font-semibold text-glass-600 underline underline-offset-4">Message us on WhatsApp</a> or <a href={`mailto:${site.contact.email}`} className="font-semibold text-glass-600 underline underline-offset-4">email us</a>.</p>
+          </div>
         ) : (
           <form onSubmit={submit} className="mt-3">
-            <p className="max-w-xl text-[15px] leading-relaxed text-ink-soft">{QUIZ.email.body}</p>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="text-[13px] font-semibold text-ink">
-                First name
-                <input required autoComplete="given-name" value={lead.name} onChange={(e) => setLead({ ...lead, name: e.target.value.slice(0, 60) })} className={field} />
-              </label>
-              <label className="text-[13px] font-semibold text-ink">
-                Email
-                <input required type="email" autoComplete="email" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value.slice(0, 160) })} className={field} />
-              </label>
-            </div>
-            <label className="mt-4 flex max-w-xl items-start gap-3 text-[13.5px] leading-relaxed text-ink-soft">
-              <input type="checkbox" checked={lead.marketing} onChange={(e) => setLead({ ...lead, marketing: e.target.checked })} className="mt-1 h-4 w-4 shrink-0 accent-[#2D6D8B]" />
-              {QUIZ.email.marketing}
-            </label>
-            <div className="mt-5 flex flex-wrap items-center gap-4">
-              <button type="submit" disabled={!valid || sent === 'sending'} className={goldButton}>
-                {QUIZ.email.action} <span aria-hidden="true">→</span>
-              </button>
-              <p className="text-[13.5px] text-ink-muted" aria-live="polite">
-                {sent === 'failed' && 'We couldn’t send it just now. Save it as a PDF to keep it.'}
-              </p>
-            </div>
+            <fieldset disabled={sent === 'sending'}>
+              <p className="max-w-xl text-[15px] leading-relaxed text-ink-soft">If you’d like to talk about your plan, tell us and we’ll get in touch. It’s completely optional.</p>
+              <fieldset className="mt-5">
+                <legend className="text-[14px] font-semibold text-ink">Would you like us to contact you about your plan?</legend>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {(['yes', 'no'] as const).map((choice) => (
+                    <label key={choice} className={`flex cursor-pointer items-center gap-2 rounded-full border px-5 py-3 text-[15px] ${reachOut === choice ? optionOn : optionIdle}`}>
+                      <input type="radio" name="quiz-reach-out" value={choice} checked={reachOut === choice} onChange={() => setReachOut(choice)} className="h-4 w-4 accent-[#2D6D8B]" />
+                      {choice === 'yes' ? 'Yes, please' : 'No, thanks'}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {reachOut === 'no' && <p className="mt-4 text-[14px] text-ink-muted">No problem—your plan is yours to keep.</p>}
+              {reachOut === 'yes' && (
+                <>
+                  <fieldset className="mt-6">
+                    <legend className="text-[14px] font-semibold text-ink">How would you like us to reach you?</legend>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      {(['whatsapp', 'email'] as const).map((method) => (
+                        <label key={method} className={`flex cursor-pointer items-center gap-2 rounded-full border px-5 py-3 text-[15px] ${lead.method === method ? optionOn : optionIdle}`}>
+                          <input type="radio" name="quiz-contact-method" value={method} checked={lead.method === method} onChange={() => setLead((current) => ({ ...current, method }))} className="h-4 w-4 accent-[#2D6D8B]" />
+                          {method === 'whatsapp' ? 'WhatsApp' : 'Email'}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  {lead.method === 'email' && (
+                    <div className="mt-4 flex items-center gap-4 rounded-2xl border border-brand/40 bg-[#F1E4D1] px-4 py-4 sm:px-5" aria-live="polite">
+                      <img src="/robot-404-confused.webp" alt="" aria-hidden="true" className="h-24 w-14 shrink-0 object-contain sm:h-28 sm:w-16" />
+                      <div className="min-w-0">
+                        <p className="font-display text-[1.15rem] font-semibold leading-snug text-ink">Email? Brave choice.</p>
+                        <p className="mt-1 text-[14px] font-medium leading-relaxed text-ink-soft">Our robot once got lost between a newsletter and 2,473 unread emails. WhatsApp is a little less scary.</p>
+                        <button type="button" onClick={() => setLead((current) => ({ ...current, method: 'whatsapp' }))} className="mt-2 inline-flex min-h-11 items-center text-[14px] font-semibold text-glass-600 underline decoration-glass/40 underline-offset-4 hover:decoration-glass focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-glass">
+                          Switch to WhatsApp <span className="ml-1" aria-hidden="true">→</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {lead.method && (
+                    <>
+                      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                        <label className="text-[13px] font-semibold text-ink">
+                          First name
+                          <input required maxLength={60} autoComplete="given-name" value={lead.name} onChange={(e) => setLead({ ...lead, name: e.target.value })} className={field} />
+                        </label>
+                        {lead.method === 'email' ? (
+                          <label className="text-[13px] font-semibold text-ink">
+                            Email address
+                            <input required type="email" maxLength={160} autoComplete="email" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} className={field} />
+                          </label>
+                        ) : (
+                          <label className="text-[13px] font-semibold text-ink">
+                            WhatsApp number
+                            <input required type="tel" maxLength={30} autoComplete="tel" inputMode="tel" placeholder="e.g. +971 50 123 4567" aria-describedby="quiz-phone-help" value={lead.phone} onChange={(e) => setLead({ ...lead, phone: e.target.value })} className={field} />
+                          </label>
+                        )}
+                      </div>
+                      {lead.method === 'whatsapp' && <p id="quiz-phone-help" className="mt-2 text-[13.5px] text-ink-muted">Include your country code, starting with +.</p>}
+                      <p className="mt-3 text-[13.5px] leading-relaxed text-ink-muted">By sending, you’re asking us to contact you about your plan using your chosen method. Your answers and contact details will be shared with our team. <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-glass-600 underline underline-offset-4">Privacy</a></p>
+                      <div className="mt-5 flex flex-wrap items-center gap-4">
+                        <button type="submit" disabled={!valid || sent === 'sending'} className={goldButton}>
+                          {sent === 'sending' ? 'Sending…' : 'Ask us to reach out'} <span aria-hidden="true">→</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+              {sent === 'failed' && <p className="mt-3 text-[13.5px] text-ink-muted" role="alert">We couldn’t send your request just now. Please try again or <a href={`mailto:${site.contact.email}`} className="text-glass-600 underline underline-offset-4">email us directly</a>.</p>}
+            </fieldset>
           </form>
         )}
         <button type="button" onClick={onRestart} className={`${quiet} mt-6`}>
@@ -492,6 +677,17 @@ export default function Quiz() {
   const { moodHandlers } = useRobotMood()
   const [taking, setTaking] = useState(false)
   const startRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!taking || !dialog) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.showModal()
+    dialog.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [taking])
 
   const exit = () => {
     setTaking(false)
@@ -545,11 +741,6 @@ export default function Quiz() {
             aria-hidden="true"
           />
 
-          {taking ? (
-            <div className="mx-auto flex max-w-2xl">
-              <FixPlan onExit={exit} />
-            </div>
-          ) : (
           <div className="mx-auto flex max-w-2xl flex-col items-center">
             <div style={rise(0)}>
               <DrawnQuestionMark active={revealed} />
@@ -594,9 +785,31 @@ export default function Quiz() {
               <p className="mt-3 text-[12.5px] text-ink-muted">{QUIZ.meta}</p>
             </div>
           </div>
-          )}
         </div>
       </div>
+      {taking && createPortal(
+        <dialog
+          ref={dialogRef}
+          aria-label={`${QUIZ.heading} ${QUIZ.emphasis}`}
+          onCancel={(event) => { event.preventDefault(); exit() }}
+          className="quiz-dialog fixed inset-0 m-auto h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border-0 bg-cream p-0 text-ink shadow-soft sm:h-auto sm:max-h-[min(90dvh,900px)] sm:w-[min(720px,calc(100%-3rem))] sm:rounded-[32px]"
+        >
+          <div className="pointer-events-none sticky top-0 z-10 flex justify-end bg-gradient-to-b from-cream via-cream/95 to-transparent px-5 pb-2 pt-[max(1rem,env(safe-area-inset-top))] sm:px-7 sm:pt-6">
+            <button
+              type="button"
+              onClick={exit}
+              aria-label="Close quiz"
+              className="pointer-events-auto grid h-10 w-10 place-items-center rounded-full border border-ink/10 bg-white/70 text-ink transition-colors duration-300 hover:border-glass/40 hover:bg-white"
+            >
+              <span aria-hidden="true" className="text-[24px] leading-none">×</span>
+            </button>
+          </div>
+          <div className="relative mx-auto max-w-2xl px-6 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-10 sm:pb-12">
+            <FixPlan onExit={exit} />
+          </div>
+        </dialog>,
+        document.body,
+      )}
     </section>
   )
 }

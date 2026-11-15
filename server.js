@@ -134,6 +134,109 @@ app.post('/api/drop-problem', (req, res) => {
   res.status(202).json({ ok: true })
 })
 
+app.post('/api/quiz-plan', async (req, res) => {
+  if (rateLimited(req.ip)) {
+    return res.status(429).json({ ok: false, error: 'Too many requests' })
+  }
+
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const name = clean(body.name, 60).replace(/\p{Cc}/gu, ' ').trim()
+  const isReachOut = body.reachOut === true
+  // Older clients only submit the original email-copy form. Keep accepting
+  // those requests without treating them as consent to a personal follow-up.
+  const isLegacy = body.reachOut === undefined && body.contactMethod === undefined
+  if (!isReachOut && !isLegacy) return res.status(400).json({ error: 'reach-out consent required' })
+  const contactMethod = isLegacy ? 'email' : body.contactMethod
+  if (contactMethod !== 'email' && contactMethod !== 'whatsapp') {
+    return res.status(400).json({ error: 'invalid contact method' })
+  }
+  const email = contactMethod === 'email' ? clean(body.email, 160) : ''
+  const phone = contactMethod === 'whatsapp' ? clean(body.phone, 30) : ''
+  const validPhone = /^\+[0-9 ()-]+$/.test(phone) && /^[0-9]{7,15}$/.test(phone.replace(/\D/g, ''))
+  if (!name || (contactMethod === 'email' ? !EMAIL.test(email) : !validPhone)) {
+    return res.status(400).json({ error: 'invalid name or contact details' })
+  }
+
+  const { cleanAnswers, answerSummary } = require('./scripts/quiz-bundle.cjs')
+  const answers = cleanAnswers(body.answers)
+  if (!answers) return res.status(400).json({ error: 'invalid answers' })
+
+  const lead = {
+    ts: new Date().toISOString(), name,
+    ...(isLegacy ? { email, marketing: body.marketing === true } : {
+      reachOut: true, contactMethod, ...(contactMethod === 'email' ? { email } : { phone }),
+    }),
+    answers,
+  }
+  try {
+    const dir = path.join(__dirname, 'data')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, 'quiz-leads.jsonl'), JSON.stringify(lead) + '\n', { mode: 0o600 })
+  } catch (err) {
+    console.error('[quiz-plan] Could not save lead:', err)
+    return res.status(500).json({ error: 'could not save lead' })
+  }
+
+  let notified = false
+  if (!process.env.MAIL_HOST) {
+    console.warn('[quiz-plan] Mail not configured; lead saved')
+  } else {
+    try {
+      // Fail closed: credentials and quiz answers must only travel over a
+      // certificate-verified implicit TLS connection (e.g. Gmail port 465).
+      const host = process.env.MAIL_HOST.trim()
+      const port = Number(process.env.MAIL_PORT || 465)
+      if (process.env.MAIL_SECURE !== 'true' || !host || !Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error('Set MAIL_SECURE=true and use an implicit TLS SMTP port')
+      }
+      if (!process.env.MAIL_USER || !process.env.MAIL_PASS || !process.env.MAIL_FROM || !process.env.LEADS_TO) {
+        throw new Error('SMTP sender, credentials, and recipient are required')
+      }
+      // emailjs is ESM; dynamic import keeps this entry point CommonJS on Node 18.
+      const { SMTPClient } = await import('emailjs')
+      const client = new SMTPClient({
+        host,
+        port,
+        ssl: { servername: host },
+        user: process.env.MAIL_USER,
+        password: process.env.MAIL_PASS,
+        timeout: 15000,
+      })
+      try {
+        await client.sendAsync({
+          from: process.env.MAIL_FROM,
+          to: process.env.LEADS_TO,
+          subject: `${isLegacy ? 'New quiz plan' : 'Quiz follow-up request'} — ${name}`,
+          text: [
+            `Name: ${name}`,
+            ...(isLegacy
+              ? [`Email: ${email}`, `Legacy email-copy request; no personal follow-up requested`, `Marketing: ${lead.marketing ? 'yes' : 'no'}`]
+              : [`Reach-out requested: yes`, `Preferred contact: ${contactMethod === 'whatsapp' ? 'WhatsApp' : 'Email'}`, contactMethod === 'email' ? `Email: ${email}` : `WhatsApp: ${phone}`]),
+            `Timestamp: ${lead.ts}`, '', ...answerSummary(answers),
+          ].join('\n'),
+        })
+        notified = true
+      } finally {
+        client.smtp.close()
+      }
+    } catch (err) {
+      // emailjs error messages can contain SMTP commands, including encoded
+      // credentials during AUTH LOGIN. Never log error text or the error object.
+      const reasons = {
+        1: 'could not connect', 2: 'SMTP server rejected a command',
+        3: 'authentication failed', 4: 'SMTP timeout', 5: 'SMTP error',
+        6: 'no connection', 7: 'authentication method unsupported',
+        8: 'connection closed', 9: 'connection ended', 10: 'TLS connection failed',
+      }
+      const reason = err && typeof err.code === 'number' ? reasons[err.code] : null
+      console.error('[quiz-plan] Notification failed; lead saved:', reason || 'configuration, TLS, or network error')
+    }
+  }
+  // The retired form promised an emailed copy, which is not implemented.
+  // Let cached older clients show their PDF fallback instead of a false claim.
+  return res.json({ ok: !isLegacy, notified })
+})
+
 // ---------------------------------------------------------------------------
 // Static site
 // ---------------------------------------------------------------------------
