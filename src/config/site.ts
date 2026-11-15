@@ -12,7 +12,7 @@ export const site = {
   name: 'Clause & Code',
   tagline: 'From messy to efficient.',
   /** what a consultation is, said once and shown beside the booking buttons */
-  consultation: 'A 45-minute call. Tell us how things run today, and you’ll leave knowing what we’d fix first.',
+  consultation: 'Start with a free 20-minute call, or go straight to a 90-minute strategy session.',
   description:
     'We map your processes and build the SOPs, systems and automations that let your business scale without the backend chaos.',
   url: env.VITE_SITE_URL ?? 'https://clauseandcode.com',
