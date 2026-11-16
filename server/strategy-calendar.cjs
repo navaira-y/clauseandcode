@@ -32,4 +32,16 @@ function createCalendarReader({ clientId, clientSecret, refreshToken, calendarId
     },
   }
 }
-module.exports = { createCalendarReader }
+// These are server-only settings prepared in hPanel. Constructing a reader does
+// not make a request, start a scheduler, or enable booking reconciliation.
+function createCalendarReaderFromEnv(env, fetchImpl = fetch) {
+  return createCalendarReader({
+    clientId: env.GOOGLE_CALENDAR_CLIENT_ID,
+    clientSecret: env.GOOGLE_CALENDAR_CLIENT_SECRET,
+    refreshToken: env.GOOGLE_CALENDAR_REFRESH_TOKEN,
+    calendarId: env.GOOGLE_CALENDAR_ID,
+    fetchImpl,
+  })
+}
+
+module.exports = { createCalendarReader, createCalendarReaderFromEnv }

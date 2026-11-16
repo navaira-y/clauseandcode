@@ -4,11 +4,11 @@ The checkout is **not live**. The backend accepts only explicitly enabled test-m
 
 ## Work completed
 
-- `POST /api/strategy/checkout`: validates an international WhatsApp number, records a test attempt in Supabase and creates a Ziina **test** payment intent. The session token is stored in a Secure, HttpOnly, SameSite cookie; only its hash is stored in the database.
+- `POST /api/strategy/checkout`: validates the customer's name and international WhatsApp number, records a test attempt in Supabase and creates a Ziina **test** payment intent. The name-column migration must be reviewed and applied before using this updated prototype. The session token is stored in a Secure, HttpOnly, SameSite cookie; only its hash is stored in the database.
 - `GET /api/strategy/status`: looks up that session and checks the intent directly with Ziina. It returns the reference and calendar only after the stored intent ID, Ziina account, completed status, AED 1,200 amount and currency match. A return URL alone is not proof of payment.
 - `POST /api/ziina/webhook`: verifies the HMAC against the raw request bytes and looks up the payment independently. Repeated completed events do not create additional records. Unknown or refund events return an error for review; refunds are **not automated**.
 - A read-only Google Calendar adapter is prepared, but it is not wired to a scheduler or public endpoint. Event/reference matching remains unimplemented until the real booking form and API representation can be tested.
-- Private table migrations and mock-based tests are included. They have not been applied or connected to a real Supabase project.
+- Private table migrations and mock-based tests are included. The team reported creating the initial table and service-role grant manually in the chosen Supabase project; this has not been verified here or recorded as a migration. The newer name-column migration has not been applied, and no real provider connection has been tested.
 
 Run `node --test tests/strategy-*.test.cjs` to exercise the mock backend and safety tests. These tests use fake credentials and providers; they do not prove the real services work.
 
@@ -26,7 +26,7 @@ The settings are listed with blank values in `.env.example`. Do not enter `...` 
 - `SUPABASE_SERVICE_ROLE_KEY`: private server-only key with access to the table. It bypasses row-level security and must never reach the browser.
 - `BOOKING_STRATEGY_EMBED`: private Google Calendar appointment-schedule embed URL. Once shown to a paid visitor, the URL can still be shared; it is not a secure lock.
 
-These settings must not be enabled until access, migrations, webhook configuration and real test-mode behavior have been reviewed. Google Calendar authorization settings are not wired yet; the required method and final variable names will be confirmed during setup.
+These settings must not be enabled until access, migrations, webhook configuration and real test-mode behavior have been reviewed. The calendar reader can use `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REFRESH_TOKEN` and `GOOGLE_CALENDAR_ID`, but nothing starts a calendar sync or matches bookings yet. See `docs/calendar-authorization.md` for private test setup. These Google settings do not enable payments.
 
 ## Remaining before launch
 

@@ -55,13 +55,15 @@ function strategyRouter({ config, store, ziina, rateLimited = () => false }) {
     if (rateLimited(req.ip)) return res.status(429).json({ ok: false, error: 'Too many requests' })
     if (req.get('origin') !== config.origin) return res.status(403).json({ ok: false, error: 'Invalid origin' })
     const phone = req.body && req.body.phone
+    const name = req.body && typeof req.body.name === 'string' ? req.body.name.trim() : ''
+    if (!name || name.length > 120 || /[\p{Cc}]/u.test(name)) return res.status(400).json({ ok: false, error: 'Enter your name' })
     if (!validPhone(phone)) return res.status(400).json({ ok: false, error: 'Enter a WhatsApp number with country code' })
     // Do not silently replace an existing session: a previous payment may
     // still be completing. Support must help if a visitor lost access.
     if (sessionFrom(req)) return res.status(409).json({ ok: false, error: 'An existing checkout is in progress. Check its status or contact us.' })
     const token = newRecoveryToken()
     try {
-      const record = await store.insert({ booking_reference: newReference(), recovery_token_hash: hashRecoveryToken(token), whatsapp_e164: phone, payment_environment: 'test' })
+      const record = await store.insert({ booking_reference: newReference(), recovery_token_hash: hashRecoveryToken(token), customer_name: name, whatsapp_e164: phone, payment_environment: 'test' })
       if (!record || !record.id) throw new Error('database insert failed')
       // Set cookie as soon as the attempt is saved, so an interrupted response
       // cannot silently erase the visitor's only session.

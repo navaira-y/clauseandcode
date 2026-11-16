@@ -33,7 +33,7 @@ async function withServer(f, run, configured = config) {
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)) })
   try { await run(`http://127.0.0.1:${server.address().port}`) } finally { await new Promise((resolve) => server.close(resolve)) }
 }
-const checkout = (base, body = { phone: '+971501234567' }, origin = config.origin, cookie) => fetch(`${base}/api/strategy/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) })
+const checkout = (base, body = { name: 'Sample Client', phone: '+971501234567' }, origin = config.origin, cookie) => fetch(`${base}/api/strategy/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) })
 const status = (base, cookie) => fetch(`${base}/api/strategy/status`, { headers: { ...(cookie ? { Cookie: cookie } : {}) } })
 function signed(body, key = secret) { return crypto.createHmac('sha256', key).update(body).digest('hex') }
 
@@ -50,16 +50,20 @@ test('disabled configuration rejects checkout and webhook before external calls'
     assert.equal(f.records.length, 0)
   }, null)
 })
-test('test checkout records only phone and redirects, with a private secure cookie', async () => {
+test('test checkout records name and phone and redirects, with a private secure cookie', async () => {
   const f = fixtures()
   await withServer(f, async (base) => {
-    assert.equal((await checkout(base, { phone: '123' })).status, 400)
+    assert.equal((await checkout(base, { name: 'Sample Client', phone: '123' })).status, 400)
+    assert.equal((await checkout(base, { name: '', phone: '+971501234567' })).status, 400)
+    assert.equal((await checkout(base, { name: 'A'.repeat(121), phone: '+971501234567' })).status, 400)
+    assert.equal((await checkout(base, { name: 'Bad\nName', phone: '+971501234567' })).status, 400)
     assert.equal((await checkout(base, undefined, 'https://attacker.test')).status, 403)
     const response = await checkout(base)
     assert.equal(response.status, 200)
     const data = await response.json(), setCookie = response.headers.get('set-cookie')
     assert.deepEqual(data, { ok: true, redirectUrl: 'https://pay.example.test/pay' })
     assert.match(setCookie, /HttpOnly/); assert.match(setCookie, /Secure/); assert.match(setCookie, /SameSite=Lax/)
+    assert.equal(f.records[0].customer_name, 'Sample Client')
     assert.equal(f.records[0].whatsapp_e164, '+971501234567')
     assert.equal(f.records[0].payment_environment, 'test')
     assert.equal(f.records[0].ziina_intent_id, 'intent-1')
