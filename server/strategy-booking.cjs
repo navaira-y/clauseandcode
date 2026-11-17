@@ -7,7 +7,7 @@ const { createZiina, createStore } = require('./strategy-adapters.cjs')
 const COOKIE = '__Host-strategy_session'
 const TOKEN = /^[A-Za-z0-9_-]{43}$/
 const ID = /^[A-Za-z0-9-]{1,100}$/
-const present = (s) => typeof s === 'string' && s.trim().length > 0 && !['...', 'placeholder', 'changeme'].includes(s.trim().toLowerCase())
+const present = (s) => typeof s === 'string' && s.trim().length > 0 && !/^\.+$/.test(s.trim()) && !['placeholder', 'changeme'].includes(s.trim().toLowerCase())
 function safeUrl(value, hostPattern, pathPattern = /^\//) {
   try {
     const url = new URL(value)
@@ -41,7 +41,10 @@ function sessionFrom(req) {
 }
 function validIntentCreation(intent, cfg) {
   if (!intent || typeof intent.id !== 'string' || !ID.test(intent.id) || intent.account_id !== cfg.account || intent.amount !== AMOUNT || intent.currency_code !== CURRENCY) return false
-  try { const url = new URL(intent.redirect_url); return url.protocol === 'https:' && !url.username && !url.password } catch { return false }
+  try {
+    const url = new URL(intent.redirect_url)
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && (url.hostname === 'ziina.com' || url.hostname.endsWith('.ziina.com'))
+  } catch { return false }
 }
 function matchesStoredIntent(intent, record, cfg) {
   return !!intent && intent.id === record.ziina_intent_id && intent.account_id === cfg.account && intent.amount === AMOUNT && intent.currency_code === CURRENCY

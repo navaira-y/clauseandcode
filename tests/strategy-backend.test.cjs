@@ -19,7 +19,7 @@ function fixtures() {
     markCompleted: async (id) => { const r = records.find((r) => r.id === id); if (!['pending', 'completed'].includes(r.payment_status)) throw Error('needs review'); r.payment_status = 'completed'; return r },
   }
   const ziina = {
-    create: async (body) => { payload = body; intent = { id: 'intent-1', account_id: config.account, amount: 120000, currency_code: 'AED', status: 'pending', redirect_url: 'https://pay.example.test/pay' }; return intent },
+    create: async (body) => { payload = body; intent = { id: 'intent-1', account_id: config.account, amount: 120000, currency_code: 'AED', status: 'pending', redirect_url: 'https://pay.ziina.com/pay' }; return intent },
     get: async () => intent,
   }
   return { store, ziina, records, get intent() { return intent }, get payload() { return payload }, failStore() { failStore = true } }
@@ -40,7 +40,7 @@ function signed(body, key = secret) { return crypto.createHmac('sha256', key).up
 // Only the test mode is ever accepted by this implementation.
 test('explicit safe test config required; placeholders, invalid URLs and live mode fail closed', () => {
   assert.ok(readConfig(env))
-  for (const change of [{ STRATEGY_EXPERIMENTAL: '' }, { STRATEGY_MODE: 'live' }, { STRATEGY_MODE: '...' }, { ZIINA_API_KEY: '...' }, { ZIINA_WEBHOOK_SECRET: 'short' }, { SUPABASE_URL: 'https://evil.example/' }, { STRATEGY_ORIGIN: 'http://example.test' }, { BOOKING_STRATEGY_EMBED: 'https://evil.example/' }]) assert.equal(readConfig({ ...env, ...change }), null)
+  for (const change of [{ STRATEGY_EXPERIMENTAL: '' }, { STRATEGY_MODE: 'live' }, { STRATEGY_MODE: '...' }, { ZIINA_API_KEY: '...' }, { ZIINA_API_KEY: '..' }, { ZIINA_WEBHOOK_SECRET: 'short' }, { SUPABASE_URL: 'https://evil.example/' }, { STRATEGY_ORIGIN: 'http://example.test' }, { BOOKING_STRATEGY_EMBED: 'https://evil.example/' }]) assert.equal(readConfig({ ...env, ...change }), null)
 })
 test('disabled configuration rejects checkout and webhook before external calls', async () => {
   const f = fixtures()
@@ -61,7 +61,7 @@ test('test checkout records name and phone and redirects, with a private secure 
     const response = await checkout(base)
     assert.equal(response.status, 200)
     const data = await response.json(), setCookie = response.headers.get('set-cookie')
-    assert.deepEqual(data, { ok: true, redirectUrl: 'https://pay.example.test/pay' })
+    assert.deepEqual(data, { ok: true, redirectUrl: 'https://pay.ziina.com/pay' })
     assert.match(setCookie, /HttpOnly/); assert.match(setCookie, /Secure/); assert.match(setCookie, /SameSite=Lax/)
     assert.equal(f.records[0].customer_name, 'Sample Client')
     assert.equal(f.records[0].whatsapp_e164, '+971501234567')
@@ -70,6 +70,17 @@ test('test checkout records name and phone and redirects, with a private secure 
     assert.equal(f.payload.test, true); assert.equal(f.payload.amount, 120000); assert.equal(f.payload.currency_code, 'AED')
     assert.equal(JSON.stringify(f.payload).includes('+971501234567'), false)
     assert.equal((await checkout(base, undefined, config.origin, setCookie.split(';')[0])).status, 409)
+  })
+})
+test('checkout rejects a provider redirect outside Ziina and does not expose it', async () => {
+  const f = fixtures()
+  const original = f.ziina.create
+  f.ziina.create = async (body) => ({ ...await original(body), redirect_url: 'https://ziina.com.attacker.test/pay' })
+  await withServer(f, async (base) => {
+    const response = await checkout(base)
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).redirectUrl, undefined)
+    assert.equal(f.records[0].ziina_intent_id, undefined)
   })
 })
 test('database failure stops checkout before any payment intent is created', async () => {

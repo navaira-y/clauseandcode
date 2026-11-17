@@ -1,13 +1,13 @@
 # Ziina strategy booking — test backend in progress
 
-The checkout is **not live**. The backend accepts only explicitly enabled test-mode requests; live payments are blocked in code. The booking popup is not connected to it: the free call still opens its calendar, while the strategy option shows a coming-soon message. Do not enable the backend on the live site or apply the migrations until the remaining work below is reviewed and tested.
+The checkout is **not live**. The backend accepts only explicitly enabled test-mode requests; live payments are blocked in code. The public booking popup keeps the coming-soon message and free calendar. An optional, clearly labelled checkout UI exists for a separately configured private test build only; never enable it for public visitors. Do not enable the backend on the live site or apply the migrations until the remaining work below is reviewed and tested.
 
 ## Work completed
 
 - `POST /api/strategy/checkout`: validates the customer's name and international WhatsApp number, records a test attempt in Supabase and creates a Ziina **test** payment intent. The name-column migration must be reviewed and applied before using this updated prototype. The session token is stored in a Secure, HttpOnly, SameSite cookie; only its hash is stored in the database.
 - `GET /api/strategy/status`: looks up that session and checks the intent directly with Ziina. It returns the reference and calendar only after the stored intent ID, Ziina account, completed status, AED 1,200 amount and currency match. A return URL alone is not proof of payment.
 - `POST /api/ziina/webhook`: verifies the HMAC against the raw request bytes and looks up the payment independently. Repeated completed events do not create additional records. Unknown or refund events return an error for review; refunds are **not automated**.
-- A read-only Google Calendar adapter is prepared, but it is not wired to a scheduler or public endpoint. Event/reference matching remains unimplemented until the real booking form and API representation can be tested.
+- A read-only Google Calendar adapter and a private operator diagnostic (`scripts/check-strategy-calendar.cjs`) are prepared, but there is no automatic scheduler or public endpoint. The diagnostic reports only counts and field presence, never event details, and does not update the database. Event/reference matching remains unimplemented until the real booking form and API representation can be tested.
 - Private table migrations and mock-based tests are included. The team reported creating the initial table and service-role grant manually in the chosen Supabase project; this has not been verified here or recorded as a migration. The newer name-column migration has not been applied, and no real provider connection has been tested.
 
 Run `node --test tests/strategy-*.test.cjs` to exercise the mock backend and safety tests. These tests use fake credentials and providers; they do not prove the real services work.
@@ -30,7 +30,7 @@ These settings must not be enabled until access, migrations, webhook configurati
 
 ## Remaining before launch
 
-1. Add the WhatsApp input and payment/return/recovery UI to the current booking popup. The present backend only restores the session in the same browser; if a visitor loses it, the team must help manually. Duplicate checkout attempts and payment-provider timeouts need further work to avoid accidental repeat payments.
+1. Review the test-only name/WhatsApp and payment-return UI in a private test build (`VITE_STRATEGY_TEST_UI=true`); it is not suitable for production. The backend only restores the session in the same browser; if a visitor loses it, the team must help manually. Duplicate checkout attempts and payment-provider timeouts need further work to avoid accidental repeat payments.
 2. With the calendar owner's authorization, test a real Google appointment form with a required booking reference. Verify what the Calendar API actually returns, then implement and test matching, cancellation/rescheduling, duplicate references and a private review workflow. Do not automatically cancel unmatched bookings.
 3. Add reliable operations for paid-but-unbooked customers, refunds, failed webhooks and reconciliation, plus private team access. Review retention, backups, access controls and consent. A database record alone is not an operational recovery system.
 4. Review webhook network security at the hosting edge, including Ziina's documented sender IPs and the actual proxy configuration. Do not trust an unverified forwarded IP header. Ziina documents one webhook URL per account; check for an existing integration before registering another. Registration is not automatic.

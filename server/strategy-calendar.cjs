@@ -6,7 +6,7 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3/calendars/'
 
 function createCalendarReader({ clientId, clientSecret, refreshToken, calendarId, fetchImpl = fetch }) {
-  if (![clientId, clientSecret, refreshToken, calendarId].every((v) => typeof v === 'string' && v.trim() && v !== '...')) throw new Error('Google Calendar configuration missing')
+  if (![clientId, clientSecret, refreshToken, calendarId].every((v) => typeof v === 'string' && v.trim() && !/^\.+$/.test(v.trim()))) throw new Error('Google Calendar configuration missing')
   return {
     async list({ timeMin, timeMax, pageToken } = {}) {
       if (!timeMin || !timeMax || !Number.isFinite(Date.parse(timeMin)) || !Number.isFinite(Date.parse(timeMax)) || Date.parse(timeMax) <= Date.parse(timeMin)) throw new Error('Valid calendar time range required')
