@@ -19,7 +19,7 @@ The settings are listed with blank values in `.env.example`. Do not enter `...` 
 - `STRATEGY_EXPERIMENTAL`: must be `true` to enable this prototype. Default is `false`.
 - `STRATEGY_MODE`: must be `test`. Any other value, including `live`, disables checkout.
 - `STRATEGY_ORIGIN`: exact HTTPS site origin, without a trailing slash (for example `https://example.com`). Used for redirects and origin checks.
-- `ZIINA_API_KEY`: server-only API key with the required payment intent permissions.
+- `ZI_API`: server-only Ziina API key with the required payment intent permissions. The original name `ZIINA_API_KEY` is also accepted; if both are present they must contain the same key or the prototype stays disabled. Use the existing private setting, not a placeholder.
 - `ZIINA_ACCOUNT_ID`: Ziina account expected to receive the payment.
 - `ZIINA_WEBHOOK_SECRET`: privately generated signing secret, at least 32 characters. It must also be registered with Ziina when the webhook is deliberately configured.
 - `SUPABASE_URL`: HTTPS project URL.
