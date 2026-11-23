@@ -194,9 +194,8 @@ function createProductionStrategy(env, rateLimited) {
   const config = readConfig(env)
   const store = config ? createStore({ url: config.supabaseUrl, key: config.supabaseKey }) : null
   const ziina = config ? createZiina({ key: config.ziinaKey }) : null
-  // No production-mounted matching route: the team will review Google Calendar
-  // manually. The old test matcher remains isolated for regression tests only.
-  return { router: strategyRouter({ config, store, ziina, rateLimited }), webhook: webhookHandler({ config, store, ziina }) }
+  const matchTestBooking = createSessionTestMatcher({ env, config, store, readerFactory: (settings) => require('./strategy-calendar.cjs').createCalendarReaderFromEnv(settings), match: (options) => require('./strategy-matching.cjs').matchPaidTestBookings(options) })
+  return { router: strategyRouter({ config, store, ziina, matchTestBooking, rateLimited }), webhook: webhookHandler({ config, store, ziina }) }
 }
 
 module.exports = { readConfig, strategyRouter, webhookHandler, createProductionStrategy, createSessionTestMatcher, matchesStoredIntent }

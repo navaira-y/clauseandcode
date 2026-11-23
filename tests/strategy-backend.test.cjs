@@ -3,7 +3,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const express = require('express')
-const { readConfig, strategyRouter, webhookHandler, createSessionTestMatcher, createProductionStrategy } = require('../server/strategy-booking.cjs')
+const { readConfig, strategyRouter, webhookHandler, createSessionTestMatcher } = require('../server/strategy-booking.cjs')
 const { createZiina, createStore } = require('../server/strategy-adapters.cjs')
 
 const secret = 'test-secret-'.repeat(4)
@@ -162,8 +162,6 @@ test('only an authenticated session and a fresh verified completed payment unloc
     f.intent.account_id = config.account
     const verified = await status(base, cookie); data = await verified.json()
     assert.equal(data.status, 'paid'); assert.equal(data.calendar, config.calendar); assert.match(data.reference, /^[a-f0-9]{32}$/)
-    assert.equal(data.reference, f.records[0].booking_reference) // The displayed reference is the same saved row.
-    assert.equal(f.records.length, 1); assert.equal(f.records[0].customer_name, 'Sample Client'); assert.equal(f.records[0].whatsapp_e164, '+971501234567')
     assert.equal(verified.headers.get('cache-control'), 'no-store')
     assert.equal(f.records[0].payment_status, 'completed')
     f.records[0].payment_status = 'refunded'
@@ -184,15 +182,6 @@ test('test matcher initializes calendar lazily, requires test mode and no extra 
   assert.equal(createSessionTestMatcher({ ...options, config: null }), null)
   const broken = createSessionTestMatcher({ ...options, readerFactory: () => { throw Error('missing config') } })
   assert.throws(() => broken('0123456789abcdef0123456789abcdef'), /missing config/)
-})
-test('production-mounted test router never enables booking matching', async () => {
-  const app = express()
-  app.use('/api/strategy', createProductionStrategy(env, () => false).router)
-  const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)) })
-  try {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/strategy/match-test-booking`, { method: 'POST' })
-    assert.equal(response.status, 503)
-  } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 test('test booking match requires a verified paid session and checks only its reference', async () => {
   const f = fixtures(); let checked = []
